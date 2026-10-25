@@ -225,6 +225,58 @@ function applyToPersona(text) {
     box.dispatchEvent(new Event('input', { bubbles: true }));
 }
 
+// 从生成结果里取中文名：优先 "Chinese name:" 字段，其次面板里的称呼，最后用时间兜底
+function pickPersonaName(text, fallbackName) {
+    const m = String(text).match(/Chinese name:[ \t]*([^\n#]*)/i);
+    const fromText = m ? m[1].trim().replace(/^["'「『]|["'」』]$/g, '') : '';
+    return fromText || fallbackName || `新人设 ${new Date().toLocaleString()}`;
+}
+
+// 新建一个人设（不覆盖现有的），并切换过去；流程等同酒馆自带的「创建人设」按钮
+async function createNewPersona(text, name) {
+    const [personas, script] = await Promise.all([
+        import('../../../personas.js'),
+        import('../../../../script.js'),
+    ]);
+    const { initPersona, setUserAvatar } = personas;
+    const { getRequestHeaders } = script;
+    const defaultAvatar = script.default_user_avatar || 'img/user-default.png';
+    if (typeof initPersona !== 'function' || typeof getRequestHeaders !== 'function') {
+        throw new Error('当前酒馆版本不支持自动创建人设，请先用「应用到当前人设」');
+    }
+
+    const avatarId = `${Date.now()}-${name.replace(/[^a-zA-Z0-9]/g, '')}.png`;
+    await initPersona(avatarId, name, text, '');
+
+    // 给新人设放一张默认头像（酒馆的人设靠头像文件名来识别）
+    const blob = await (await fetch(defaultAvatar)).blob();
+    const form = new FormData();
+    form.append('avatar', new File([blob], 'avatar.png', { type: 'image/png' }));
+    form.append('overwrite_name', avatarId);
+    const res = await fetch('/api/avatars/upload', {
+        method: 'POST',
+        headers: getRequestHeaders({ omitContentType: true }),
+        cache: 'no-cache',
+        body: form,
+    });
+    if (!res.ok) {
+        throw new Error(`上传默认头像失败：${res.statusText}`);
+    }
+    const data = await res.json().catch(() => ({}));
+    const finalId = data?.path || avatarId;
+    if (finalId !== avatarId && personas.initPersona) {
+        // 极少数情况服务端改了文件名，用实际文件名再登记一次
+        await initPersona(finalId, name, text, '');
+    }
+    if (typeof personas.getUserAvatars === 'function') {
+        await personas.getUserAvatars(true, finalId);
+    }
+    if (typeof setUserAvatar === 'function') {
+        await setUserAvatar(finalId, { navigateToCurrent: true });
+    }
+    return finalId;
+}
+
 function toast(kind, msg) {
     if (window.toastr && window.toastr[kind]) {
         window.toastr[kind](msg, 'Persona Forge');
@@ -263,10 +315,11 @@ function panelHtml() {
       <label for="pf_output">结果（可以直接改）</label>
       <textarea id="pf_output" class="text_pole" style="min-height:160px"></textarea>
       <div class="pf-row">
-        <div id="pf_apply" class="menu_button">应用到当前人设</div>
+        <div id="pf_create" class="menu_button">创建为新人设</div>
+        <div id="pf_apply" class="menu_button">覆盖当前人设</div>
         <div id="pf_copy" class="menu_button">复制</div>
       </div>
-      <div class="pf-hint">「AI 生成」会用你当前连接的模型。「应用」会把结果写进当前 Persona 的描述框，别忘了在酒馆里确认保存。</div>
+      <div class="pf-hint">「AI 生成」会用你当前连接的模型。「创建为新人设」会新建一个人设（名字取自结果里的 Chinese name）并切换过去；「覆盖当前人设」才会改写当前人设的描述。</div>
     </div>
   </div>
 </div>`;
@@ -317,6 +370,29 @@ function mount() {
         } finally {
             delete btn.dataset.busy;
             btn.textContent = old;
+        }
+    });
+
+    $('pf_create').addEventListener('click', async () => {
+        const btn = $('pf_create');
+        if (btn.dataset.busy) {
+            return;
+        }
+        const text = $('pf_output').value.trim();
+        if (!text) {
+            toast('warning', '结果是空的');
+            return;
+        }
+        btn.dataset.busy = '1';
+        try {
+            const name = pickPersonaName(text, $('pf_name').value.trim());
+            await createNewPersona(text, name);
+            toast('success', `已创建新人设「${name}」并切换过去`);
+        } catch (e) {
+            console.error(`[${MODULE}]`, e);
+            toast('error', e.message || String(e));
+        } finally {
+            delete btn.dataset.busy;
         }
     });
 
