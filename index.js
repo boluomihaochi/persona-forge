@@ -109,6 +109,33 @@ function clip(text, max) {
     return s.length > max ? s.slice(0, max) + '…（已截断）' : s;
 }
 
+// 取酒馆当前真正生效的世界书条目：全局 + 角色 + 聊天 + 人设绑定的世界书，只留「开启」的条目（常驻条目排前面）
+async function getActiveLoreEntries(ctx, ch) {
+    let entries = [];
+    try {
+        const mod = await import('../../../world-info.js');
+        if (typeof mod.getSortedEntries === 'function') {
+            entries = await mod.getSortedEntries();
+        }
+    } catch (e) {
+        console.warn(`[${MODULE}] 读取世界书总览失败，改读角色绑定的世界书`, e);
+    }
+    if (!entries.length) {
+        // 兜底：只读角色绑定的 / 内嵌的世界书
+        let book = null;
+        const linked = ch?.data?.extensions?.world;
+        if (linked && typeof ctx.loadWorldInfo === 'function') {
+            try { book = await ctx.loadWorldInfo(linked); } catch (e) { console.warn(`[${MODULE}] 读取世界书失败`, e); }
+        }
+        if (!book && ch?.data?.character_book) book = ch.data.character_book;
+        const raw = book?.entries ?? {};
+        entries = Array.isArray(raw) ? raw : Object.values(raw);
+    }
+    const enabled = entries.filter((e) => e && !e.disable && e.enabled !== false);
+    // 常驻（constant）条目优先
+    return enabled.sort((a, b) => Number(!!b.constant) - Number(!!a.constant));
+}
+
 // 读取当前聊天角色的人设 / 世界书 / 开场白，字数受 limit 控制（省 token）
 async function gatherCharContext({ useCard, useLore, useGreeting, limit }) {
     const ctx = getContext();
@@ -132,25 +159,17 @@ async function gatherCharContext({ useCard, useLore, useGreeting, limit }) {
     }
 
     if (useGreeting) {
-        const first = ch.first_mes || ch.data?.first_mes;
+        // 优先读当前聊天里真正的第一条角色消息（包含你选的 swipe / 改过的开场白），读不到再用角色卡里的
+        const firstInChat = (ctx.chat || []).find((m) => m && !m.is_user && !m.is_system);
+        const first = firstInChat?.mes || ch.first_mes || ch.data?.first_mes;
         if (first) parts.push('【开场白】\n' + clip(first, 800));
     }
 
     if (useLore) {
-        let book = null;
-        const linked = ch.data?.extensions?.world;
-        if (linked && typeof ctx.loadWorldInfo === 'function') {
-            try { book = await ctx.loadWorldInfo(linked); } catch (e) { console.warn(`[${MODULE}] 读取世界书失败`, e); }
-        }
-        if (!book && ch.data?.character_book) {
-            book = ch.data.character_book;
-        }
-        const raw = book?.entries ?? {};
-        const list = Array.isArray(raw) ? raw : Object.values(raw);
+        const entries = await getActiveLoreEntries(ctx, ch);
         const lines = [];
         let used = 0;
-        for (const e of list) {
-            if (e.disable || e.enabled === false) continue;
+        for (const e of entries) {
             const title = e.comment || (Array.isArray(e.key) ? e.key.join('/') : e.keys?.join?.('/')) || '条目';
             const body = clip(e.content, 400);
             if (!body) continue;
@@ -159,7 +178,7 @@ async function gatherCharContext({ useCard, useLore, useGreeting, limit }) {
             lines.push(line);
             used += line.length;
         }
-        if (lines.length) parts.push('【世界书（已启用条目，按字数上限截取）】\n' + lines.join('\n'));
+        if (lines.length) parts.push(`【世界书（只含已开启的条目，共 ${entries.length} 条，按字数上限截取）】\n` + lines.join('\n'));
     }
 
     return parts.length > 1 ? parts.join('\n\n') : '';
