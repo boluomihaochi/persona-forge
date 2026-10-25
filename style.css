@@ -1,0 +1,6 @@
+.pf-block { display: flex; flex-direction: column; gap: 6px; margin: 6px 0; }
+.pf-block textarea { width: 100%; min-height: 80px; box-sizing: border-box; }
+.pf-block input[type="text"], .pf-block select { width: 100%; box-sizing: border-box; }
+.pf-row { display: flex; gap: 6px; flex-wrap: wrap; }
+.pf-row .menu_button { flex: 1 1 auto; margin: 0; white-space: nowrap; }
+.pf-hint { opacity: 0.7; font-size: 0.85em; }
