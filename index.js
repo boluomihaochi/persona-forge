@@ -194,9 +194,11 @@ function buildPrompt(keywords, name, detail, withNsfw, charContext) {
         '写作说明（来自使用者的习惯）：',
         ...FIELD_NOTES.map((s) => '- ' + s),
         ...(charContext ? [
-            '下面是要和这位用户角色互动的 {{char}} 的参考资料。请让用户角色的时代、世界观、语言风格与之自洽，并留出能与 {{char}} 发生关系、推动剧情的空间；不要照抄资料里的内容，也不要把 {{char}} 当成用户角色本人：',
+            '下面是要和这位用户角色互动的 {{char}} 的参考资料。请让用户角色的时代、世界观、语言风格与之自洽，并留出能与 {{char}} 发生关系、推动剧情的空间；不要照抄资料里的内容，也不要把 {{char}} 当成用户角色本人。',
+            '硬性规则：参考资料（尤其是开场白）里对「你 / {{user}}」写明的信息——年龄、身份、处境、称呼、时间点——是既定事实，设定必须与之完全一致，不得改动；例如开场白写明「你刚满十六」，则 age 必须是 16，background_story 只写到当前年龄为止，尚未经历的阶段（如青年、中年）写「尚未到来」，现状按开场白所处的时间点写。',
             charContext,
         ] : []),
+        '年龄规则：如果角色年龄不满 18 岁，必须删去 NSFW_information 整段（连字段名也不要出现），全文不得出现任何性相关内容。',
         `关键词：${keywords || '（无，请自由发挥，写一位有故事感的人）'}`,
         '格式如下：',
         template,
@@ -247,7 +249,7 @@ function panelHtml() {
       <div class="pf-row">
         <select id="pf_detail" class="text_pole"><option value="brief">简短</option><option value="normal" selected>适中</option><option value="rich">详细</option></select>
       </div>
-      <label class="checkbox_label"><input id="pf_nsfw" type="checkbox" checked><span>包含 NSFW_information 段（按你的格式，不需要就取消勾选）</span></label>
+      <label class="checkbox_label"><input id="pf_nsfw" type="checkbox" checked><span>包含 NSFW_information 段（不需要就取消勾选；角色不满 18 岁时会自动省略）</span></label>
       <div class="pf-hint">参考当前聊天的角色（让人设和 char 自洽）：</div>
       <label class="checkbox_label"><input id="pf_use_card" type="checkbox"><span>读 char 人设</span></label>
       <label class="checkbox_label"><input id="pf_use_lore" type="checkbox"><span>读世界书</span></label>
