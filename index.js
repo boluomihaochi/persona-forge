@@ -181,7 +181,13 @@ async function gatherCharContext({ useCard, useLore, useGreeting, limit }) {
         if (lines.length) parts.push(`【世界书（只含已开启的条目，共 ${entries.length} 条，按字数上限截取）】\n` + lines.join('\n'));
     }
 
-    return parts.length > 1 ? parts.join('\n\n') : '';
+    return parts.length > 1 ? maskUserMacro(parts.join('\n\n')) : '';
+}
+
+// generateRaw 会把整段提示词里的 {{user}} 换成「当前选中的人设名」，世界书/开场白里的 {{user}}
+// 本来指「正在被写的这位用户角色」，不是现在选中的那个人设。提前换成中性说法，别让酒馆替我们换。
+function maskUserMacro(s) {
+    return String(s).replace(/\{\{\s*user\s*\}\}|<USER>/gi, '【待设定的用户角色】');
 }
 
 function buildPrompt(keywords, name, detail, withNsfw, charContext) {
@@ -195,7 +201,7 @@ function buildPrompt(keywords, name, detail, withNsfw, charContext) {
         ...FIELD_NOTES.map((s) => '- ' + s),
         ...(charContext ? [
             '下面是要和这位用户角色互动的 {{char}} 的参考资料。请让用户角色的时代、世界观、语言风格与之自洽，并留出能与 {{char}} 发生关系、推动剧情的空间；不要照抄资料里的内容，也不要把 {{char}} 当成用户角色本人。',
-            '硬性规则：参考资料（尤其是开场白）里对「你 / {{user}}」写明的信息——年龄、身份、处境、称呼、时间点——是既定事实，设定必须与之完全一致，不得改动；例如开场白写明「你刚满十六」，则 age 必须是 16，background_story 只写到当前年龄为止，尚未经历的阶段（如青年、中年）写「尚未到来」，现状按开场白所处的时间点写。',
+            '硬性规则：参考资料（尤其是开场白）里对「你 / 【待设定的用户角色】」写明的信息——年龄、身份、处境、称呼、时间点——是既定事实，设定必须与之完全一致，不得改动；例如开场白写明「你刚满十六」，则 age 必须是 16，background_story 只写到当前年龄为止，尚未经历的阶段（如青年、中年）写「尚未到来」，现状按开场白所处的时间点写。',
             charContext,
         ] : []),
         '年龄规则：如果角色年龄不满 18 岁，必须删去 NSFW_information 整段（连字段名也不要出现），全文不得出现任何性相关内容。',
