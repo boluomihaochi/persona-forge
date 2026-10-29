@@ -181,14 +181,23 @@ async function gatherCharContext({ useCard, useLore, useGreeting, limit }) {
         if (lines.length) parts.push(`【世界书（只含已开启的条目，共 ${entries.length} 条，按字数上限截取）】\n` + lines.join('\n'));
     }
 
-    return parts.length > 1 ? maskUserMacro(parts.join('\n\n')) : '';
+    return parts.length > 1 ? maskUserMacro(parts.join('\n\n'), ctx.name1) : '';
 }
 
 // generateRaw 会把整段提示词里的 {{user}} 换成「当前选中的人设名」，世界书/开场白里的 {{user}}
 // 本来指「正在被写的这位用户角色」，不是现在选中的那个人设。提前换成中性说法，别让酒馆替我们换。
-function maskUserMacro(s) {
-    return String(s).replace(/\{\{\s*user\s*\}\}|<USER>/gi, '【待设定的用户角色】');
+function maskUserMacro(s, currentName) {
+    let out = String(s).replace(/\{\{\s*user\s*\}\}|<USER>/gi, MASK);
+    // 开场白读的是聊天里已经展开过的那条消息：{{user}} 早就被换成当前选中的人设名了，这里把名字也换回来
+    const n = String(currentName || '').trim();
+    if (n.length >= 2) {
+        out = out.split(n).join(MASK);
+    } else if (/^[A-Za-z0-9]$/.test(n)) {
+        out = out.replace(new RegExp('\\b' + n + '\\b', 'g'), MASK);   // 单个字母只按整词换，别把英文单词拆了
+    }   // 单个汉字不换，误伤太多
+    return out;
 }
+const MASK = '【待设定的用户角色】';
 
 function buildPrompt(keywords, name, detail, withNsfw, charContext) {
     const who = name ? `角色中文名叫「${name}」` : '角色名字由你合适地起一个';
@@ -197,6 +206,7 @@ function buildPrompt(keywords, name, detail, withNsfw, charContext) {
     return [
         '你是一位擅长为角色扮演写角色设定的编辑。请根据下面的关键词，为一位「用户角色」（user persona）写一份设定，必须严格使用给定的格式，保留全部字段名和缩进，把空字段填满。',
         `要求：${who}；${depth}；语言用中文（字段名保持原样）；设定要具体、有故事感，不空泛，前后自洽；只输出填好的格式本身，不要写前言、解释或代码块标记。`,
+        '名字规则：只使用上面指定的名字（没指定就自己起一个）。不要写「目前以某某的名字生活」「法律名字是某某」「曾用名」之类的话；参考资料里出现的「【待设定的用户角色】」就是正在写的这位角色本人，不是别的已有人设。',
         '写作说明（来自使用者的习惯）：',
         ...FIELD_NOTES.map((s) => '- ' + s),
         ...(charContext ? [
