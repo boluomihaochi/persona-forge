@@ -222,6 +222,28 @@ function buildPrompt(keywords, name, detail, withNsfw, charContext) {
     ].join('\n');
 }
 
+const USER_TOKEN = '〔USER宏〕';
+
+function buildEditPrompt(current, instruction, detail) {
+    const depth = detail === 'brief' ? '新增内容写得简短' : detail === 'rich' ? '新增内容写得充实具体' : '新增内容详略适中';
+    return [
+        '你是一位擅长修改角色扮演用户设定的编辑。下面是一份已有的「用户角色」设定，请只按「修改要求」做改动，输出修改后的完整设定。',
+        '规则：',
+        '- 没被要求改的部分原样保留，一个字都不要动，包括字段名、缩进、顺序、名字。',
+        '- 修改要求要求加的内容（例如人际关系、家人、朋友、经历）：在现有格式的合适位置追加，或在末尾按同样的 YAML 缩进风格新增字段（字段名用英文，内容写中文，具体到人名、身份、与角色的关系和相处细节）。人际关系只在修改要求提到时才写。',
+        '- 新增或改动的内容要和已有设定自洽，不矛盾。',
+        `- ${depth}；语言用中文。`,
+        `- 文中的「${USER_TOKEN}」是占位符，原样保留。`,
+        '- 只输出修改后的完整设定本身，不要写前言、解释或代码块标记。',
+        '',
+        '【已有设定】',
+        current,
+        '',
+        '【修改要求】',
+        instruction,
+    ].join('\n');
+}
+
 async function generateWithAI(prompt) {
     const ctx = getContext();
     const fn = ctx.generateRaw;
@@ -336,11 +358,19 @@ function panelHtml() {
         <div id="pf_apply" class="menu_button">覆盖当前人设</div>
         <div id="pf_copy" class="menu_button">复制</div>
       </div>
-      <div class="pf-hint">「AI 生成」会用你当前连接的模型。「创建为新人设」会新建一个人设（名字取自结果里的 Chinese name）并切换过去；「覆盖当前人设」才会改写当前人设的描述。</div>
+      <label for="pf_edit_req">修改当前人设（读取当前选中的人设描述，按你的要求改）</label>
+      <textarea id="pf_edit_req" class="text_pole" placeholder="比如：加一点人际关系：两个朋友、一个对头，写清楚怎么认识的"></textarea>
+      <div class="pf-row">
+        <div id="pf_edit" class="menu_button">AI 修改当前人设</div>
+        <div id="pf_restore" class="menu_button">还原上次覆盖</div>
+      </div>
+      <div class="pf-hint">「AI 生成」会用你当前连接的模型。「创建为新人设」会新建一个人设（名字取自结果里的 Chinese name）并切换过去；「覆盖当前人设」才会改写当前人设的描述。「AI 修改当前人设」会把修改结果放进上面的结果框，确认没问题再点「覆盖当前人设」。</div>
     </div>
   </div>
 </div>`;
 }
+
+let lastBackup = '';
 
 function mount() {
     const host = document.querySelector('#extensions_settings2') || document.querySelector('#extensions_settings');
@@ -420,8 +450,64 @@ function mount() {
             return;
         }
         try {
+            const box = document.querySelector('#persona_description');
+            if (box && box.value) {
+                lastBackup = box.value;
+            }
             applyToPersona(text);
-            toast('success', '已写进当前人设的描述框');
+            toast('success', '已写进当前人设的描述框（可点「还原上次覆盖」撤回）');
+        } catch (e) {
+            toast('error', e.message || String(e));
+        }
+    });
+
+    $('pf_edit').addEventListener('click', async () => {
+        const btn = $('pf_edit');
+        if (btn.dataset.busy) {
+            return;
+        }
+        const req = $('pf_edit_req').value.trim();
+        const box = document.querySelector('#persona_description');
+        const current = box ? box.value.trim() : '';
+        if (!req) {
+            toast('warning', '先写一下要怎么改');
+            return;
+        }
+        if (!current) {
+            toast('warning', '当前人设的描述是空的（先打开一次「用户设置 / Persona」面板再试）');
+            return;
+        }
+        btn.dataset.busy = '1';
+        const old = btn.textContent;
+        btn.textContent = '修改中…';
+        try {
+            // 只把 {{user}} 宏换成占位符（不换人设名：描述里的名字是要原样保留的）
+            const masked = current.replace(/\{\{\s*user\s*\}\}/gi, USER_TOKEN);
+            const prompt = buildEditPrompt(masked, req, $('pf_detail').value);
+            let text = await generateWithAI(prompt);
+            if (!text) {
+                throw new Error('模型没有返回内容，请检查是否已连接 API');
+            }
+            text = text.split(USER_TOKEN).join('{{user}}');
+            $('pf_output').value = text;
+            toast('success', '改好了，在结果框里看看，没问题点「覆盖当前人设」');
+        } catch (e) {
+            console.error(`[${MODULE}]`, e);
+            toast('error', e.message || String(e));
+        } finally {
+            delete btn.dataset.busy;
+            btn.textContent = old;
+        }
+    });
+
+    $('pf_restore').addEventListener('click', () => {
+        if (!lastBackup) {
+            toast('warning', '没有可还原的内容（只记得本次打开页面后最近一次覆盖前的版本）');
+            return;
+        }
+        try {
+            applyToPersona(lastBackup);
+            toast('success', '已还原成覆盖之前的描述');
         } catch (e) {
             toast('error', e.message || String(e));
         }
