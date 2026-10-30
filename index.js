@@ -206,6 +206,7 @@ function buildPrompt(keywords, name, detail, withNsfw, charContext) {
     return [
         '你是一位擅长为角色扮演写角色设定的编辑。请根据下面的关键词，为一位「用户角色」（user persona）写一份设定，必须严格使用给定的格式，保留全部字段名和缩进，把空字段填满。',
         `要求：${who}；${depth}；语言用中文（字段名保持原样）；设定要具体、有故事感，不空泛，前后自洽；只输出填好的格式本身，不要写前言、解释或代码块标记。`,
+        '追加规则：给定格式是基础模板，不是上限。如果关键词里要求了模板里没有的内容（例如人际关系、家人、朋友、仇人、过往恋情、口头禅、居所等），必须照做：在模板全部字段之后，按同样的 YAML 缩进风格追加对应的新字段（字段名用英文，如 relationships、family、friends，内容写中文、具体到人名、身份、与角色的关系和相处细节），不要因为模板里没有就省略。',
         '名字规则：只使用上面指定的名字（没指定就自己起一个）。不要写「目前以某某的名字生活」「法律名字是某某」「曾用名」之类的话；参考资料里出现的「【待设定的用户角色】」就是正在写的这位角色本人，不是别的已有人设。',
         '写作说明（来自使用者的习惯）：',
         ...FIELD_NOTES.map((s) => '- ' + s),
@@ -313,7 +314,7 @@ function panelHtml() {
       <label for="pf_name">称呼（可留空）</label>
       <input id="pf_name" type="text" class="text_pole" placeholder="比如：沈砚、小林…">
       <label for="pf_keywords">关键词（可留空，点「随机灵感」自动填）</label>
-      <textarea id="pf_keywords" class="text_pole" placeholder="比如：落魄的江湖郎中；嘴硬心软；手腕有旧疤"></textarea>
+      <textarea id="pf_keywords" class="text_pole" placeholder="比如：落魄的江湖郎中；嘴硬心软；手腕有旧疤；另外要写人际关系（家人、朋友各两三个）"></textarea>
       <div class="pf-row">
         <select id="pf_detail" class="text_pole"><option value="brief">简短</option><option value="normal" selected>适中</option><option value="rich">详细</option></select>
       </div>
