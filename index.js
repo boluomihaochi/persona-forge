@@ -245,12 +245,19 @@ function buildEditPrompt(current, instruction, detail) {
 }
 
 
-function buildReformatPrompt(current, detail, withNsfw, instruction) {
-    const template = TEMPLATE_MAIN + (withNsfw ? TEMPLATE_NSFW : '');
+// part: {text, label, extras}；extras=true 表示这一段只负责「模板里没有的内容」
+function buildReformatPrompt(current, detail, withNsfw, instruction, part) {
+    const template = part ? part.text : TEMPLATE_MAIN + (withNsfw ? TEMPLATE_NSFW : '');
+    const partRule = !part ? [] : part.extras ? [
+        '- 这一次只做一件事：找出已有设定里「格式之外」的内容（例如人际关系、家人、朋友、口头禅、居所等），按 YAML 缩进风格写成新字段（字段名用英文，内容写中文）。若没有这类内容，只输出「（无）」二字。不要输出格式里已有的字段。',
+    ] : [
+        '- 这一次只输出下面「格式」这一段对应的内容（其余部分由别的步骤处理）：保留这一段的字段名和缩进，不要输出这一段以外的字段。',
+    ];
     return [
         '你是一位擅长整理角色扮演用户设定的编辑。下面是一份已有的「用户角色」设定（写法可能不规范、字段名不同、是大段散文或别的格式），请把它按给定的「格式」重新整理一遍。',
         '这是「重排」，不是「原样输出」：输出必须是给定格式的字段结构，不能把已有设定原样复制回来。',
         '规则：',
+        ...partRule,
         '- 逐条把已有设定里的信息归入格式里对应的字段，保留全部字段名和缩进；已有设定里的信息一条都不要丢，也不要改动事实（名字、年龄、经历、关系）。',
         '- 已有设定里没有写到的字段：留空，或只写一两句与已有设定自洽的内容，不要大段编造。',
         '- 已有设定里有、但格式里没有对应字段的内容（例如人际关系、家人、口头禅）：在格式全部字段之后，按同样的 YAML 缩进风格追加新字段（字段名用英文，内容写中文），不要丢弃。',
@@ -266,8 +273,23 @@ function buildReformatPrompt(current, detail, withNsfw, instruction) {
         '',
         ...(instruction ? ['【同时修改要求】', instruction, ''] : []),
         '格式如下：',
-        template,
+        ...(part && part.extras ? ['（本次不输出格式，只写格式之外的新字段。下面仅供你对照，哪些字段已经有了：）', TEMPLATE_MAIN] : [template]),
     ].join('\n');
+}
+
+// 把模板切成几段，分几次请求，每次输出短，避免长输出被中转超时（502）
+function reformatParts(withNsfw) {
+    const blocks = TEMPLATE_MAIN.split('\n\n');
+    const groups = [[0], [1, 2, 3], [4], [5, 6, 7, 8], [9, 10, 11, 12, 13]];
+    const parts = groups.map((g, i) => ({
+        label: `第${i + 1}段`,
+        text: g.map((i2) => blocks[i2]).filter((b) => b !== undefined).join('\n\n'),
+    }));
+    if (withNsfw) {
+        parts.push({ label: 'NSFW 段', text: TEMPLATE_NSFW.trim() });
+    }
+    parts.push({ label: '模板外内容', text: '', extras: true });
+    return parts;
 }
 
 async function generateWithAI(prompt) {
@@ -543,11 +565,23 @@ function mount() {
         btn.textContent = '重排中…';
         try {
             const masked = current.replace(/\{\{\s*user\s*\}\}/gi, USER_TOKEN);
-            const prompt = buildReformatPrompt(masked, $('pf_detail').value, $('pf_nsfw').checked, $('pf_edit_req').value.trim());
-            let text = await generateWithAI(prompt);
-            if (!text) {
-                throw new Error('模型没有返回内容，请检查是否已连接 API');
+            const req = $('pf_edit_req').value.trim();
+            const parts = reformatParts($('pf_nsfw').checked);
+            const outs = [];
+            for (let i = 0; i < parts.length; i++) {
+                btn.textContent = `重排中 ${i + 1}/${parts.length}…`;
+                const prompt = buildReformatPrompt(masked, $('pf_detail').value, $('pf_nsfw').checked, req, parts[i]);
+                let piece = await generateWithAI(prompt);
+                if (!piece) {
+                    throw new Error('模型没有返回内容，请检查是否已连接 API');
+                }
+                piece = piece.trim();
+                if (parts[i].extras && /^[（(]?无[）)]?$/.test(piece)) {
+                    continue;
+                }
+                outs.push(piece);
             }
+            let text = outs.join('\n\n');
             text = text.split(USER_TOKEN).join('{{user}}');
             $('pf_output').value = text;
             toast('success', '重排好了，在结果框里看看，没问题点「覆盖当前人设」或「创建为新人设」');
