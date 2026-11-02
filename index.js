@@ -571,7 +571,12 @@ function mount() {
             for (let i = 0; i < parts.length; i++) {
                 btn.textContent = `重排中 ${i + 1}/${parts.length}…`;
                 const prompt = buildReformatPrompt(masked, $('pf_detail').value, $('pf_nsfw').checked, req, parts[i]);
-                let piece = await generateWithAI(prompt);
+                let piece;
+                try {
+                    piece = await generateWithAI(prompt);
+                } catch (err) {
+                    throw new Error(`重排第 ${i + 1}/${parts.length} 段失败（${parts[i].label}，提示词 ${prompt.length} 字，其中已有设定 ${masked.length} 字，修改要求 ${req.length} 字）：${err.message || err}`);
+                }
                 if (!piece) {
                     throw new Error('模型没有返回内容，请检查是否已连接 API');
                 }
