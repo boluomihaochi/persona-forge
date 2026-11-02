@@ -592,6 +592,7 @@ function mount() {
             toast('success', '重排好了，在结果框里看看，没问题点「覆盖当前人设」或「创建为新人设」');
         } catch (e) {
             console.error(`[${MODULE}]`, e);
+            $('pf_output').value = '【重排失败，把这段原样发给听澍】\n' + (e.message || String(e));
             toast('error', e.message || String(e));
         } finally {
             delete btn.dataset.busy;
