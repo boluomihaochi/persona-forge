@@ -244,6 +244,28 @@ function buildEditPrompt(current, instruction, detail) {
     ].join('\n');
 }
 
+
+function buildReformatPrompt(current, detail, withNsfw) {
+    const template = TEMPLATE_MAIN + (withNsfw ? TEMPLATE_NSFW : '');
+    return [
+        '你是一位擅长整理角色扮演用户设定的编辑。下面是一份已有的「用户角色」设定（写法可能不规范、字段名不同、是大段散文或别的格式），请把它按给定的「格式」重新整理一遍。',
+        '这是「重排」，不是「原样输出」：输出必须是给定格式的字段结构，不能把已有设定原样复制回来。',
+        '规则：',
+        '- 逐条把已有设定里的信息归入格式里对应的字段，保留全部字段名和缩进；已有设定里的信息一条都不要丢，也不要改动事实（名字、年龄、经历、关系）。',
+        '- 已有设定里没有写到的字段：留空，或只写一两句与已有设定自洽的内容，不要大段编造。',
+        '- 已有设定里有、但格式里没有对应字段的内容（例如人际关系、家人、口头禅）：在格式全部字段之后，按同样的 YAML 缩进风格追加新字段（字段名用英文，内容写中文），不要丢弃。',
+        '- 语言用中文（字段名保持原样）；只输出整理好的完整设定本身，不要写前言、解释或代码块标记。',
+        '- 年龄不满 18 岁时不要输出 NSFW_information 整段，全文不得出现任何性相关内容。',
+        `- 文中的「${USER_TOKEN}」是占位符，原样保留。`,
+        '',
+        '【已有设定】',
+        current,
+        '',
+        '格式如下：',
+        template,
+    ].join('\n');
+}
+
 async function generateWithAI(prompt) {
     const ctx = getContext();
     const fn = ctx.generateRaw;
@@ -362,9 +384,10 @@ function panelHtml() {
       <textarea id="pf_edit_req" class="text_pole" placeholder="比如：加一点人际关系：两个朋友、一个对头，写清楚怎么认识的"></textarea>
       <div class="pf-row">
         <div id="pf_edit" class="menu_button">AI 修改当前人设</div>
+        <div id="pf_reformat" class="menu_button">按模板重排当前人设</div>
         <div id="pf_restore" class="menu_button">还原上次覆盖</div>
       </div>
-      <div class="pf-hint">「AI 生成」会用你当前连接的模型。「创建为新人设」会新建一个人设（名字取自结果里的 Chinese name）并切换过去；「覆盖当前人设」才会改写当前人设的描述。「AI 修改当前人设」会把修改结果放进上面的结果框，确认没问题再点「覆盖当前人设」。</div>
+      <div class="pf-hint">「AI 生成」会用你当前连接的模型。「创建为新人设」会新建一个人设（名字取自结果里的 Chinese name）并切换过去；「覆盖当前人设」才会改写当前人设的描述。「按模板重排当前人设」把旧人设的内容整理进模板字段（不丢信息）；「AI 修改当前人设」会把修改结果放进上面的结果框，确认没问题再点「覆盖当前人设」。</div>
     </div>
   </div>
 </div>`;
@@ -491,6 +514,39 @@ function mount() {
             text = text.split(USER_TOKEN).join('{{user}}');
             $('pf_output').value = text;
             toast('success', '改好了，在结果框里看看，没问题点「覆盖当前人设」');
+        } catch (e) {
+            console.error(`[${MODULE}]`, e);
+            toast('error', e.message || String(e));
+        } finally {
+            delete btn.dataset.busy;
+            btn.textContent = old;
+        }
+    });
+
+    $('pf_reformat').addEventListener('click', async () => {
+        const btn = $('pf_reformat');
+        if (btn.dataset.busy) {
+            return;
+        }
+        const box = document.querySelector('#persona_description');
+        const current = box ? box.value.trim() : '';
+        if (!current) {
+            toast('warning', '当前人设的描述是空的（先打开一次「用户设置 / Persona」面板再试）');
+            return;
+        }
+        btn.dataset.busy = '1';
+        const old = btn.textContent;
+        btn.textContent = '重排中…';
+        try {
+            const masked = current.replace(/\{\{\s*user\s*\}\}/gi, USER_TOKEN);
+            const prompt = buildReformatPrompt(masked, $('pf_detail').value, $('pf_nsfw').checked);
+            let text = await generateWithAI(prompt);
+            if (!text) {
+                throw new Error('模型没有返回内容，请检查是否已连接 API');
+            }
+            text = text.split(USER_TOKEN).join('{{user}}');
+            $('pf_output').value = text;
+            toast('success', '重排好了，在结果框里看看，没问题点「覆盖当前人设」或「创建为新人设」');
         } catch (e) {
             console.error(`[${MODULE}]`, e);
             toast('error', e.message || String(e));
